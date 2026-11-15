@@ -1,0 +1,33 @@
+import {test,expect} from '@playwright/test';
+test('complete personal fitness workflow with history, backups, and offline persistence',async({page,context})=>{
+const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));page.on('dialog',d=>d.accept());
+await page.goto('/');
+const nav=async(name:string)=>{const target=page.locator('nav:visible').getByRole('button',{name,exact:true});await target.click()};
+await page.getByRole('button',{name:'Start tracking',exact:true}).click();
+await nav('Exercise Library');await expect(page.getByText('A fresh start for your strength.')).toBeVisible();
+await page.getByRole('button',{name:'Add your first exercise',exact:true}).click();
+let dialog=page.getByRole('dialog');await dialog.getByLabel('Exercise name').fill('Incline Dumbbell Press');await dialog.getByLabel('Current working weight').fill('35');await dialog.getByLabel('Load meaning').selectOption('per dumbbell');await dialog.getByLabel('Target reps / range').fill('10');await dialog.getByRole('button',{name:'Add exercise',exact:true}).click();
+await expect(page.getByText('Incline Dumbbell Press',{exact:true})).toBeVisible();
+await page.getByRole('button',{name:'Edit',exact:true}).click();await page.getByRole('dialog').getByLabel('Current working weight').fill('40');await page.getByRole('button',{name:'Save changes'}).click();await expect(page.getByText('40 lbs',{exact:true})).toBeVisible();
+await nav('Workouts');
+// Set a deterministic date without changing the device clock.
+await page.evaluate(async()=>{const request=indexedDB.open('recomp-os',1);const db=await new Promise<IDBDatabase>((resolve,reject)=>{request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error)});db.close()});
+const monday=page.getByRole('button',{name:/Select .*\d/}).nth(0);await monday.click();
+const mondayLabel=await monday.getAttribute('aria-label');
+await page.getByRole('button',{name:'Add exercise',exact:true}).click();await page.getByRole('dialog').getByRole('button',{name:/Incline Dumbbell Press/}).click();
+await page.getByLabel('Incline Dumbbell Press weight',{exact:true}).fill('42.5');
+await page.getByRole('button',{name:/Select .*\d/}).nth(3).click();await page.getByRole('button',{name:'Add exercise',exact:true}).click();await page.getByRole('dialog').getByRole('button',{name:/Incline Dumbbell Press/}).click();await expect(page.getByLabel('Incline Dumbbell Press weight',{exact:true})).toHaveValue('40');
+await page.getByRole('button',{name:mondayLabel!,exact:true}).click();await page.getByRole('button',{name:'Start workout',exact:true}).click();await page.getByLabel('Incline Dumbbell Press set 1 weight',{exact:true}).fill('45');await page.getByLabel('Incline Dumbbell Press set 1 reps',{exact:true}).fill('8');await page.getByRole('button',{name:'Complete Incline Dumbbell Press set 1',exact:true}).click();await page.getByLabel('Distance',{exact:true}).fill('1.2');await page.getByLabel('Duration (min)').fill('24');await page.getByRole('button',{name:'Finish workout',exact:true}).click();await expect(page.getByRole('dialog').getByText('You showed up.')).toBeVisible();await page.getByRole('button',{name:'Keep the momentum'}).click();
+await page.getByRole('button',{name:/Chest \+ Back A.*working sets.*Completed/}).click();await expect(page.getByLabel('Incline Dumbbell Press set 1 weight',{exact:true})).toHaveValue('45');await page.getByLabel('Incline Dumbbell Press set 1 weight',{exact:true}).fill('46');await page.getByRole('button',{name:'Back to plan'}).click();await expect(page.getByLabel('Incline Dumbbell Press weight',{exact:true})).toHaveValue('42.5');
+await page.getByRole('button',{name:'Next week'}).click();await expect(page.getByRole('button',{name:'Start workout',exact:true})).toBeVisible();await page.getByRole('button',{name:'Previous week'}).click();
+await nav('Exercise Library');await expect(page.getByText('40 lbs',{exact:true})).toBeVisible();await page.getByRole('button',{name:'History',exact:true}).click();await expect(page.getByRole('dialog').getByText(/46 lbs × 8/)).toBeVisible();await page.getByRole('button',{name:'Close dialog'}).click();
+await nav('Dashboard');await page.getByLabel('Total daily steps',{exact:true}).fill('7000');await page.getByLabel('Standing minutes',{exact:true}).fill('90');await page.getByRole('button',{name:'10-min morning walk',exact:true}).click();await page.getByRole('button',{name:'+16 oz',exact:false}).count().then(async n=>{if(n)await page.getByRole('button',{name:'+16 oz',exact:false}).click();else await page.getByRole('button',{name:'16 oz',exact:false}).click()});
+await page.getByRole('button',{name:'Log weight'}).click();await page.getByRole('dialog').getByLabel('Value (lbs)').fill('167.5');await page.getByRole('button',{name:'Save entry',exact:true}).click();
+await nav('Habits');await page.getByRole('button',{name:'Mark Protein goal met complete',exact:true}).click();
+await nav('Progress');await expect(page.getByText('167.5',{exact:true}).first()).toBeVisible();
+await nav('Settings');const download=page.waitForEvent('download');await page.getByRole('button',{name:'Export all data'}).click();const backup=await download;const file=await backup.path();expect(file).toBeTruthy();
+await nav('Exercise Library');await page.getByRole('button',{name:'Delete Incline Dumbbell Press',exact:true}).click();await expect(page.getByText('A fresh start for your strength.')).toBeVisible();
+await nav('Settings');await page.locator('input[type=file]').setInputFiles(file!);await expect(page.getByRole('dialog',{name:'Restore your backup'})).toBeVisible();await page.getByRole('button',{name:'Replace data and restore'}).click();await page.waitForTimeout(300);await page.reload();await nav('Exercise Library');await expect(page.getByText('Incline Dumbbell Press',{exact:true})).toBeVisible();
+await page.evaluate(async()=>{await navigator.serviceWorker.ready});await page.reload();await page.waitForFunction(()=>!!navigator.serviceWorker.controller);await context.setOffline(true);await page.reload();await expect(page.getByText('Incline Dumbbell Press',{exact:true})).toBeVisible().catch(async()=>{await nav('Exercise Library');await expect(page.getByText('Incline Dumbbell Press',{exact:true})).toBeVisible()});
+await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);expect(errors).toEqual([]);
+});
